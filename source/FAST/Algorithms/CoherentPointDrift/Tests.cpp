@@ -18,22 +18,31 @@ Mesh::pointer getPointCloud() {
 
 TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
 
+    // Load two identical point clouds
     auto cloud1 = getPointCloud();
     auto cloud2 = getPointCloud();
 
+    // Create transformation
+    Vector3f translation(-0.02f, 0.1f, -0.2f);
     auto transform = AffineTransformation::New();
     Affine3f affine = Affine3f::Identity();
-    affine.translate(Vector3f(0.10, 0, 0));
+    affine.translate(translation);
+    affine.rotate(Eigen::AngleAxisf(3.14f/4.0f, Eigen::Vector3f::UnitY()));
+    affine.scale(0.3);
     transform->setTransform(affine);
+
+    // Apply transform to one point cloud
     cloud2->getSceneGraphNode()->setTransformation(transform);
 
+    // Run Coherent Point Drift
     auto cpd = CoherentPointDrift::New();
     cpd->setFixedMesh(cloud1);
     cpd->setMovingMesh(cloud2);
 
     auto renderer = VertexRenderer::New();
-    renderer->addInputData(cloud1);
-    renderer->addInputConnection(cpd->getOutputPort(), Color::Red(), 2.0);
+    renderer->addInputData(cloud1);                                             // Fixed points
+//    renderer->addInputData(cloud2, Color::Cyan(), 4.0);                         // Moving points
+    renderer->addInputConnection(cpd->getOutputPort(), Color::Red(), 2.0);      // Moving points registered
 
     auto window = SimpleWindow::New();
     window->addRenderer(renderer);
