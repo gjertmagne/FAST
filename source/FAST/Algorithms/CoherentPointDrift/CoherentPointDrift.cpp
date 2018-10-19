@@ -10,6 +10,7 @@
 
 //#include <Eigen/SVD>
 #include <iostream>
+#include <ctime>
 
 namespace fast {
 
@@ -22,10 +23,12 @@ namespace fast {
         mW = 0.0;
         mIteration = 0;
         mMaxIterations = 100;
-        mTolerance = 1e-5;
+        mTolerance = 1e-4;
         mIterationError = mTolerance + 1.0;
         mRandomSamplingPoints = 0;
         mDistanceThreshold = -1;
+        timeE = 0.0;
+        timeM = 0.0;
         mTransformationType = CoherentPointDrift::RIGID;
         mTransformation = AffineTransformation::New();
     }
@@ -116,15 +119,14 @@ namespace fast {
         /* *************
          * Normalization
          * ************/
-
-        // Center point clouds around origin
+        // Center point clouds around origin, zero mean
         MatrixXf movingMean = movingPoints.colwise().sum() / mNumMovingPoints;
         MatrixXf fixedMean = fixedPoints.colwise().sum() / mNumFixedPoints;
         fixedPoints -= fixedMean.replicate(mNumFixedPoints, 1);
         movingPoints -= movingMean.replicate(mNumMovingPoints, 1);
 
 
-        // Scale point clouds
+        // Scale point clouds to have unit variance
         double fixedScale = sqrt(fixedPoints.cwiseProduct(fixedPoints).sum() / (double)mNumFixedPoints);
         double movingScale = sqrt(movingPoints.cwiseProduct(movingPoints).sum() / (double)mNumMovingPoints);
         std::cout << "Fixed scale factor: " << fixedScale << std::endl;
@@ -132,19 +134,30 @@ namespace fast {
         fixedPoints /= fixedScale;
         movingPoints /= movingScale;
 
+
         /* *************************
          * Get some points drifting!
          * ************************/
         // Initialize the probability matrix of correspondences
         mProbabilityMatrix = MatrixXf::Zero(mNumMovingPoints, mNumFixedPoints);
 
+        clock_t startEM = clock();
+        double timeStartEM = omp_get_wtime();
         while (mIteration < mMaxIterations && mIterationError > mTolerance) {
-            int itTemp = mIteration;
-            std::cout << "ITERATION " << itTemp << std::endl;
             expectation(&mProbabilityMatrix, &fixedPoints, &movingPoints);
             maximization(&mProbabilityMatrix, &fixedPoints, &movingPoints);
             mIteration++;
         }
+        clock_t endEM = clock();
+        double timeEndEM = omp_get_wtime();
+//        double timeEM = (double) (endEM-startEM) / CLOCKS_PER_SEC;
+        double totalTimeEM = timeEndEM - timeStartEM;
+
+        int itTemp = mIteration;
+        std::cout << "EM converged in " << itTemp-1 << " iterations in " << totalTimeEM << " s.\n";
+        std::cout << "Time spent on expectation: " << timeE << " s\n";
+        std::cout << "Time spent on maximization: " << timeM/1000.0 << " s" << std::endl;
+        std::cout << "Remaining time spent on updating transform and point clouds\n";
 
 
         /* ***********
@@ -163,13 +176,11 @@ namespace fast {
         denormalizationTranslation.translate(initialTranslation);
 
         Affine3f registrationTransformTotal = denormalizationTranslation * registrationTransform;
-
         transform->setTransform(registrationTransformTotal*existingTransform);
         movingMesh->getSceneGraphNode()->setTransformation(transform);
         addOutputData(0, movingMesh);
 
         std::cout << "\n*****************************************\n";
-        std::cout << "Initial translation\n" << initialTranslation << std::endl;
         std::cout << "Final registration matrix: \n" << registrationTransformTotal.matrix() << std::endl;
         std::cout << "Registered transform * existingTransform (should be identity): \n"
             << registrationTransformTotal * existingTransform.matrix() << std::endl;
@@ -183,15 +194,53 @@ namespace fast {
                     MatrixXf* probabilityMatrix,
                     MatrixXf* fixedPoints, MatrixXf* movingPoints) {
 
+        clock_t startE = clock();
+        double timeStartE = omp_get_wtime();
+
         // Calculate distances between the points in the two point sets
-        MatrixXf dist = MatrixXf::Zero(mNumMovingPoints, mNumFixedPoints);
-        for(int i = 0; i < mNumMovingPoints; ++i) {
-            MatrixXf movingPointMatrix = movingPoints->row(i).replicate(mNumFixedPoints, 1);
-            dist = *fixedPoints - movingPointMatrix;                // Distance between all fixed points and moving point i
-            dist = dist.cwiseAbs2();                                // Square distance components (3xN)
-            probabilityMatrix->row(i) = dist.rowwise().sum();       // Sum x, y, z components (1xN)
-                                                                    // Let row i in P equal the squared distances from all fixed points to moving point i
+//        MatrixXf dist = MatrixXf::Zero(mNumMovingPoints, mNumFixedPoints);
+        #pragma omp parallel for collapse(2)
+        for (int i = 0; i < mNumMovingPoints; ++i) {
+            for (int j = 0; j < mNumFixedPoints; ++ j) {
+                VectorXf fixedVec = fixedPoints->row(j);
+                VectorXf movingVec = movingPoints->row(i);
+                VectorXf diff = fixedVec - movingVec;
+                probabilityMatrix->row(i)[j] = diff.squaredNorm();
+                // Let row i in P equal the squared distances from all fixed points to moving point i
+            }
         }
+
+
+
+        // Working fine
+//        for (int i = 0; i < mNumMovingPoints; ++i) {
+//            MatrixXf movingPointMatrix = movingPoints->row(i).replicate(mNumFixedPoints, 1);
+//            dist = *fixedPoints - movingPointMatrix;                 // Distance between all fixed points and moving point i
+//            dist = dist.cwiseAbs2();                                // Square distance components (3xN)
+//            probabilityMatrix->row(i) = dist.rowwise().sum();       // Sum x, y, z components (1xN)
+//                 Let row i in P equal the squared distances from all fixed points to moving point i
+//        }
+
+
+        // Testing parallelization with OpenMP
+//        int i;
+//        MatrixXf movingPointMatrix;
+//        #pragma omp parallel num_threads(8)
+//        {
+//            #pragma omp for private(i, movingPointMatrix, dist)
+//            for (i = 0; i < mNumMovingPoints; ++i) {
+//                movingPointMatrix = movingPoints->row(i).replicate(mNumFixedPoints, 1);
+//                dist = *fixedPoints -
+//                       movingPointMatrix;                // Distance between all fixed points and moving point i
+//                dist = dist.cwiseAbs2();                                // Square distance components (3xN)
+//                probabilityMatrix->row(i) = dist.rowwise().sum();       // Sum x, y, z components (1xN)
+//                 Let row i in P equal the squared distances from all fixed points to moving point i
+//            }
+//        }
+
+
+
+
 
         // Normal distribution
         double c = pow(2*(double)EIGEN_PI*mVariance, (double)mNumDimensions/2)
@@ -209,10 +258,17 @@ namespace fast {
         MatrixXf denominator = denominatorRow.replicate(mNumMovingPoints, 1);
 
         *probabilityMatrix = probabilityMatrix->cwiseQuotient(denominator);
+
+        clock_t endE = clock();
+        double timeEndE = omp_get_wtime();
+        timeE += timeEndE - timeStartE;
+//        timeE += (double) (endE-startE) / CLOCKS_PER_SEC * 1000.0;
     }
 
     void CoherentPointDrift::maximization(MatrixXf* probabilityMatrix,
             MatrixXf* fixedPoints, MatrixXf* movingPoints) {
+
+        clock_t startM = clock();
 
         // Define some useful matrix sums
         mPt1 = probabilityMatrix->transpose().rowwise().sum();      // mNumFixedPoints x 1
@@ -257,6 +313,9 @@ namespace fast {
             mVariance = mTolerance / 10;
         }
 
+        clock_t endM = clock();
+        timeM += (double) (endM-startM) / CLOCKS_PER_SEC * 1000.0;
+
         /* ****************
          * Update transform
          * ***************/
@@ -288,9 +347,9 @@ namespace fast {
                 + (mNp * mNumDimensions)/2 * log(mVariance);
         mIterationError = abs(mObjectiveFunction - objectiveFunctionOld);
 
-        std::cout << "Change in error this iteration: " << mIterationError << std::endl;
-        std::cout << "Total transformation matrix so far:\n"
-                  << mTransformation->getTransform().matrix() << std::endl;
+//        std::cout << "Change in error this iteration: " << mIterationError << std::endl;
+//        std::cout << "Total transformation matrix so far:\n"
+//                  << mTransformation->getTransform().matrix() << std::endl;
     }
 
 
