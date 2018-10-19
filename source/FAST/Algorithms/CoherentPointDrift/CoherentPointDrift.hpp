@@ -43,6 +43,8 @@ namespace fast {
         float mW;                               // Weight of the uniform distribution
         unsigned char mIteration;
         unsigned char mMaxIterations;
+        double timeE;
+        double timeM;
         int mRandomSamplingPoints;
         float mDistanceThreshold;
         AffineTransformation::pointer mTransformation;
