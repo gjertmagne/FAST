@@ -23,7 +23,6 @@ namespace fast {
                          MatrixXf* fixedPoints, MatrixXf* movingPoints);
         void maximization(MatrixXf* probabilityMatrix,
                           MatrixXf* fixedPoints, MatrixXf* movingPoints);
-        void transformPointCloud();
         void execute();
 
         MatrixXf mProbabilityMatrix;            // P
@@ -44,9 +43,9 @@ namespace fast {
         unsigned char mIteration;
         unsigned char mMaxIterations;
         double timeE;
+        double timeEomp;
         double timeM;
-        int mRandomSamplingPoints;
-        float mDistanceThreshold;
+        double mFractionSamplePoints;
         AffineTransformation::pointer mTransformation;
         CoherentPointDrift::TransformationType mTransformationType;
     };
