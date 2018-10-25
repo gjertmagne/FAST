@@ -6,6 +6,8 @@
 #include "FAST/Visualization/VertexRenderer/VertexRenderer.hpp"
 #include "CoherentPointDrift.hpp"
 
+#include <random>
+#include <iostream>
 using namespace fast;
 
 Mesh::pointer getPointCloud() {
@@ -23,14 +25,15 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     auto cloud2 = getPointCloud();
     auto cloud3 = getPointCloud();
 
-    // Create transformation
+    // Create transformation for moving point cloud
     Vector3f translation(-0.02f, 0.05f, -0.02f);
     auto transform = AffineTransformation::New();
     Affine3f affine = Affine3f::Identity();
     affine.translate(translation);
-    affine.rotate(Eigen::AngleAxisf(3.14f/4.0f, Eigen::Vector3f::UnitY()));
-    affine.scale(0.6);
+//    affine.rotate(Eigen::AngleAxisf(3.14f/4.0f, Eigen::Vector3f::UnitY()));
+//    affine.scale(0.6);
     transform->setTransform(affine);
+
 
     // Apply transform to one point cloud
     cloud2->getSceneGraphNode()->setTransformation(transform);
