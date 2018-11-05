@@ -16,6 +16,7 @@ namespace fast {
         void setMovingMeshPort(DataPort::pointer port);
         void setMovingMesh(Mesh::pointer data);
         void setTransformationType(const CoherentPointDrift::TransformationType type);
+        void setMaximumIterations(unsigned char maxIterations);
         AffineTransformation::pointer getOutputTransformation();
     private:
         CoherentPointDrift();
