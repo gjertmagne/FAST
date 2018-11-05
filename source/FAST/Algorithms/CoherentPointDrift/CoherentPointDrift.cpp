@@ -25,7 +25,7 @@ namespace fast {
         mMaxIterations = 100;
         mTolerance = 1e-4;
         mIterationError = mTolerance + 1.0;
-        mFractionSamplePoints = 1.0;
+        mFractionSamplePoints = 0.75;
         timeE = 0.0;
         timeM = 0.0;
         mTransformationType = CoherentPointDrift::RIGID;
@@ -51,6 +51,10 @@ namespace fast {
 
     void CoherentPointDrift::setTransformationType(const CoherentPointDrift::TransformationType type) {
         mTransformationType = type;
+    }
+
+    void CoherentPointDrift::setMaximumIterations(unsigned char maxIterations) {
+        mMaxIterations = maxIterations;
     }
 
     AffineTransformation::pointer CoherentPointDrift::getOutputTransformation() {
@@ -88,30 +92,6 @@ namespace fast {
             movingPoints.row(i) = movingVertices[i].getPosition();
         }
 
-
-        // Remove some points from the moving point cloud
-        if (mFractionSamplePoints < 1) {
-            assert(mFractionSamplePoints >= 0 && mFractionSamplePoints <= 1);
-            int numSamplePoints = (int)floor(mFractionSamplePoints * mNumMovingPoints);
-            MatrixXf movingPointsSampled = MatrixXf::Zero(numSamplePoints, mNumDimensions);
-            std::unordered_set<int> movingIndices;
-            int sampledPoints = 0;
-            int index = 0;
-            std::default_random_engine distributionEngine;
-            std::uniform_int_distribution<int> distribution(0, mNumMovingPoints-1);
-            while (sampledPoints < numSamplePoints) {
-//                int index = distribution(distributionEngine);
-                if (movingIndices.count(index) < 1) {
-                    movingPointsSampled.row(sampledPoints) = movingPoints.row(index);
-                    movingIndices.insert(index);
-                    ++index;
-                    ++sampledPoints;
-                }
-            }
-            movingPoints = movingPointsSampled;
-            mNumMovingPoints = (unsigned int)numSamplePoints;
-        }
-
         // Apply existing transformation (for testing) to moving point cloud
         auto existingTransform = SceneGraph::getEigenAffineTransformationFromData(movingMesh);
         std::cout << "Existing transform: \n" << existingTransform.affine() << std::endl;
@@ -119,24 +99,41 @@ namespace fast {
         movingPoints += existingTransform.translation().transpose().replicate(mNumMovingPoints, 1);
 //        movingPoints = movingPoints.rowwise().homogeneous() * existingTransform.affine();
 
+
+        MatrixXf movingPointsOriginal = movingPoints;
+
+        // Find mean of original moving point set
+        MatrixXf movingMeanInitialOriginal = movingPoints.colwise().sum() / mNumMovingPoints;
+        MatrixXf fixedMeanInitialOriginal = fixedPoints.colwise().sum() / mNumFixedPoints;
+
+
+        // Remove some points from the moving point cloud
+        if (mFractionSamplePoints < 1) {
+            assert(mFractionSamplePoints >= 0 && mFractionSamplePoints <= 1);
+            int numSamplePoints = (int)ceil(mFractionSamplePoints * mNumMovingPoints);
+            MatrixXf movingPointsSampled = MatrixXf::Zero(numSamplePoints, mNumDimensions);
+            std::unordered_set<int> movingIndices;
+            int sampledPoints = 0;
+            std::default_random_engine distributionEngine;
+            std::uniform_int_distribution<int> distribution(0, mNumMovingPoints-1);
+            while (sampledPoints < numSamplePoints) {
+                int index = distribution(distributionEngine);
+                if (movingIndices.count(index) < 1) {
+                    movingPointsSampled.row(sampledPoints) = movingPoints.row(index);
+                    movingIndices.insert(index);
+                    ++sampledPoints;
+                }
+            }
+            movingPoints = movingPointsSampled;
+            mNumMovingPoints = (unsigned int)numSamplePoints;
+        }
+
         // Print point cloud information
         std::cout << "\n****************************************\n";
         std::cout << "mNumFixedPoints = " << mNumFixedPoints
                   << ", mNumMovingPoints = " << mNumMovingPoints << std::endl;
         std::cout << "Dimension = " << mNumDimensions << std::endl;
 
-        // Initialize the variance
-        if (mVariance == 100) {
-            mVariance = (   (double)mNumMovingPoints * (fixedPoints.transpose() * fixedPoints).trace() +
-                            (double)mNumFixedPoints * (movingPoints.transpose() * movingPoints).trace() -
-                            2.0 * fixedPoints.colwise().sum() * movingPoints.colwise().sum().transpose()  ) /
-                    (double)(mNumFixedPoints * mNumMovingPoints * mNumDimensions);
-            double varianceTemp = mVariance;
-            std::cout << "Variance, initial: " << varianceTemp << std::endl;
-        }
-
-        // Calculate the value of the objective function
-        mObjectiveFunction = -mIterationError - double(mNumFixedPoints * mNumDimensions)/2 * log(mVariance);
 
         /* *************
          * Normalization
@@ -153,6 +150,21 @@ namespace fast {
         double movingScale = sqrt(movingPoints.cwiseProduct(movingPoints).sum() / (double)mNumMovingPoints);
         fixedPoints /= fixedScale;
         movingPoints /= movingScale;
+
+
+        // Initialize the variance in the CPD registration
+        if (mVariance == 100) {
+            mVariance = (   (double)mNumMovingPoints * (fixedPoints.transpose() * fixedPoints).trace() +
+                            (double)mNumFixedPoints * (movingPoints.transpose() * movingPoints).trace() -
+                            2.0 * fixedPoints.colwise().sum() * movingPoints.colwise().sum().transpose()  ) /
+                        (double)(mNumFixedPoints * mNumMovingPoints * mNumDimensions);
+            double varianceTemp = mVariance;
+            std::cout << "Variance, initial: " << varianceTemp << std::endl;
+        }
+
+        // Calculate the value of the objective function
+        mObjectiveFunction = -mIterationError - double(mNumFixedPoints * mNumDimensions)/2 * log(mVariance);
+
 
 
         /* *************************
@@ -182,38 +194,37 @@ namespace fast {
         std::cout << "Remaining time spent on updating transform and point clouds\n";
 
 
-        /* ***********
-         * Denormalize
-         * **********/
+        /* ***********************************************
+         * Denormalize and set total transformation matrix
+         * **********************************************/
+
+        // Set normalization
+        Affine3f normalization = Affine3f::Identity();
+        normalization.translate((Vector3f) -(movingMeanInitial).transpose());
+
+        // Denormalize moving point cloud
         mScale *= fixedScale / movingScale;
+        Affine3f registration = mTransformation->getTransform();
+        registration.scale((float) mScale);
+        registration.translation() *= fixedScale;
 
+        Affine3f denormalization = Affine3f::Identity();
+        denormalization.translate((Vector3f) (fixedMeanInitial).transpose());
+
+        // Set total transformation
         auto transform = AffineTransformation::New();
-        Affine3f registrationTransform = Affine3f::Identity();
+        Affine3f registrationTransformTotal = denormalization * registration * normalization;
+        transform->setTransform(registrationTransformTotal * existingTransform);
 
-        mTransformation->getTransform().scale(float(mScale));
-        Vector3f initialTranslation =
-                fixedMeanInitial.transpose() - mTransformation->getTransform().linear() * movingMeanInitial.transpose();
-        registrationTransform = mTransformation->getTransform();
-
-        std::cout << "fixedMeanInitial: " << fixedMeanInitial << std::endl;
-        std::cout << "movingMeanInitial: " << movingMeanInitial << std::endl;
-        std::cout << "Initial translation:\n" << initialTranslation << std::endl;
-
-
-        Affine3f denormalizationTranslation = Affine3f::Identity();
-        denormalizationTranslation.translate(initialTranslation);
-
-        Affine3f registrationTransformTotal = denormalizationTranslation * registrationTransform;
-        transform->setTransform(registrationTransformTotal*existingTransform);
         movingMesh->getSceneGraphNode()->setTransformation(transform);
         addOutputData(0, movingMesh);
 
+        // Print some matrices
         std::cout << "\n*****************************************\n";
-        std::cout << "Registration matrix: \n" << registrationTransform.matrix() << std::endl;
+        std::cout << "Registration matrix: \n" << registration.matrix() << std::endl;
         std::cout << "Final registration matrix: \n" << registrationTransformTotal.matrix() << std::endl;
         std::cout << "Registered transform * existingTransform (should be identity): \n"
             << registrationTransformTotal * existingTransform.matrix() << std::endl;
-
     }
 
 
@@ -264,18 +275,7 @@ namespace fast {
          * Calculate posterior probabilities of GMM components
          * **************************************************/
         MatrixXf denominatorRow = probabilityMatrix->colwise().sum();
-        if (mIteration == 0) {
-            std::cout << "denrow:\n" << denominatorRow << std::endl;
-            std::cout << "denrow.array():\n" << denominatorRow.array() << std::endl;
-            std::cout << "denrow.array():\n" << denominatorRow.array() << std::endl;
-
-        }
         denominatorRow =  denominatorRow.array() + c;
-
-        if (mIteration == 0) {
-            std::cout << "c = " << c << std::endl;
-            std::cout << "denrow.array() + c:\n" << denominatorRow << std::endl;
-        }
 
         // Ensure that one does not divide by zero
         MatrixXf shouldBeLargerThanEpsilon = Eigen::NumTraits<float>::epsilon() * MatrixXf::Ones(1, mNumFixedPoints);
@@ -360,8 +360,8 @@ namespace fast {
         mTransformation->setTransform(currentRegistrationTransform);
 
         int itTemp = mIteration;
-        std::cout << "\nITERATION " << itTemp << std::endl;
-        std::cout << "scale: " << mScale << std::endl;
+//        std::cout << "\nITERATION " << itTemp << std::endl;
+//        std::cout << "scale: " << mScale << std::endl;
 
 
         /* *************************
@@ -381,9 +381,9 @@ namespace fast {
                 + (mNp * mNumDimensions)/2 * log(mVariance);
         mIterationError = abs(mObjectiveFunction - objectiveFunctionOld);
 
-        std::cout << "Change in error this iteration: " << mIterationError << std::endl;
-        std::cout << "Total transformation matrix so far:\n"
-                  << mTransformation->getTransform().matrix() << std::endl;
+//        std::cout << "Change in error this iteration: " << mIterationError << std::endl;
+//        std::cout << "Total transformation matrix so far:\n"
+//                  << mTransformation->getTransform().matrix() << std::endl;
     }
 
 }
