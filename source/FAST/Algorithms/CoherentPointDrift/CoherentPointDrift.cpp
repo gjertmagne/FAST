@@ -25,7 +25,7 @@ namespace fast {
         mMaxIterations = 100;
         mTolerance = 1e-4;
         mIterationError = mTolerance + 1.0;
-        mFractionSamplePoints = 0.75;
+        mFractionSamplePoints = 1.0;
         timeE = 0.0;
         timeM = 0.0;
         mTransformationType = CoherentPointDrift::RIGID;
@@ -100,34 +100,6 @@ namespace fast {
 //        movingPoints = movingPoints.rowwise().homogeneous() * existingTransform.affine();
 
 
-        MatrixXf movingPointsOriginal = movingPoints;
-
-        // Find mean of original moving point set
-        MatrixXf movingMeanInitialOriginal = movingPoints.colwise().sum() / mNumMovingPoints;
-        MatrixXf fixedMeanInitialOriginal = fixedPoints.colwise().sum() / mNumFixedPoints;
-
-
-        // Remove some points from the moving point cloud
-        if (mFractionSamplePoints < 1) {
-            assert(mFractionSamplePoints >= 0 && mFractionSamplePoints <= 1);
-            int numSamplePoints = (int)ceil(mFractionSamplePoints * mNumMovingPoints);
-            MatrixXf movingPointsSampled = MatrixXf::Zero(numSamplePoints, mNumDimensions);
-            std::unordered_set<int> movingIndices;
-            int sampledPoints = 0;
-            std::default_random_engine distributionEngine;
-            std::uniform_int_distribution<int> distribution(0, mNumMovingPoints-1);
-            while (sampledPoints < numSamplePoints) {
-                int index = distribution(distributionEngine);
-                if (movingIndices.count(index) < 1) {
-                    movingPointsSampled.row(sampledPoints) = movingPoints.row(index);
-                    movingIndices.insert(index);
-                    ++sampledPoints;
-                }
-            }
-            movingPoints = movingPointsSampled;
-            mNumMovingPoints = (unsigned int)numSamplePoints;
-        }
-
         // Print point cloud information
         std::cout << "\n****************************************\n";
         std::cout << "mNumFixedPoints = " << mNumFixedPoints
@@ -158,8 +130,6 @@ namespace fast {
                             (double)mNumFixedPoints * (movingPoints.transpose() * movingPoints).trace() -
                             2.0 * fixedPoints.colwise().sum() * movingPoints.colwise().sum().transpose()  ) /
                         (double)(mNumFixedPoints * mNumMovingPoints * mNumDimensions);
-            double varianceTemp = mVariance;
-            std::cout << "Variance, initial: " << varianceTemp << std::endl;
         }
 
         // Calculate the value of the objective function

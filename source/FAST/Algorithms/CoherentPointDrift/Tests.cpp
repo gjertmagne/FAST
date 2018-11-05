@@ -18,6 +18,33 @@ Mesh::pointer getPointCloud() {
     return port->getNextFrame<Mesh>();
 }
 
+void modifyPointCloud(Mesh::pointer pointCloud, double fractionOfPointsToKeep, double fractionNoisePoints) {
+    MeshAccess::pointer accessFixedSet = pointCloud->getMeshAccess(ACCESS_READ);
+    std::vector<MeshVertex> vertices = accessFixedSet->getVertices();
+
+    auto numVertices = (unsigned int) vertices.size();
+    auto numSamplePoints = (unsigned int) ceil(fractionOfPointsToKeep * numVertices);
+//    std::vector<MeshVertex> newVertices[numSamplePoints];
+    std::vector<MeshVertex> newVertices;
+
+    std::unordered_set<int> movingIndices;
+    unsigned int sampledPoints = 0;
+    std::default_random_engine distributionEngine;
+    std::uniform_int_distribution<unsigned int> distribution(0, numVertices-1);
+    while (sampledPoints < numSamplePoints) {
+        unsigned int index = distribution(distributionEngine);
+        if (movingIndices.count(index) < 1) {
+//            newVertices[sampledPoints].insert(vertices[index]);
+//            newVertices->at(sampledPoints) = vertices.at(index);
+            newVertices.push_back(vertices.at(index));
+            movingIndices.insert(index);
+            ++sampledPoints;
+        }
+    }
+    pointCloud->create(newVertices);
+}
+
+
 TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
 
     // Load identical point clouds
@@ -25,7 +52,13 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     auto cloud2 = getPointCloud();
     auto cloud3 = getPointCloud();
 
-    std::vector<int> iterations = {3, 10, 30, 50};
+    // Modify point clouds
+    double fractionOfPointsToKeep = 0.5;
+    double noiseLevel = 0.0;
+    modifyPointCloud(cloud2, fractionOfPointsToKeep, noiseLevel);
+    modifyPointCloud(cloud3, fractionOfPointsToKeep, noiseLevel);
+
+    std::vector<unsigned char> iterations = {0, 50};
     for(auto maxIterations : iterations) {
         // Create transformation for moving point cloud
         Vector3f translation(-0.04f, 0.05f, -0.02f);
@@ -50,8 +83,8 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
         cpd->setMaximumIterations(maxIterations);
 
         auto renderer = VertexRenderer::New();
-        renderer->addInputData(cloud1);                                             // Fixed points
-        renderer->addInputData(cloud3, Color::Cyan(), 2.0);                         // Moving points
+        renderer->addInputData(cloud1, Color::Green(), 3.0);                        // Fixed points
+        renderer->addInputData(cloud3, Color::Blue(), 2.0);                         // Moving points
         renderer->addInputConnection(cpd->getOutputPort(), Color::Red(), 2.0);      // Moving points registered
 
         auto window = SimpleWindow::New();
