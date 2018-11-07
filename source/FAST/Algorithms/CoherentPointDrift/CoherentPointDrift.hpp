@@ -17,6 +17,8 @@ namespace fast {
         void setMovingMesh(Mesh::pointer data);
         void setTransformationType(const CoherentPointDrift::TransformationType type);
         void setMaximumIterations(unsigned char maxIterations);
+        void setUniformWeight(float uniformWeight);
+        void setTolerance(double tolerance);
         AffineTransformation::pointer getOutputTransformation();
     private:
         CoherentPointDrift();
@@ -39,14 +41,13 @@ namespace fast {
         double mVariance;                       // sigma^2
         double mIterationError;                 // Change in error from iteration to iteration
         double mTolerance;                      // Convergence criteria for EM iterations
-        double mNp;                             // Sum of all elements in P
-        float mW;                               // Weight of the uniform distribution
+        float mNp;                              // Sum of all elements in P
+        float mUniformWeight;                   // Weight of the uniform distribution
         unsigned char mIteration;
         unsigned char mMaxIterations;
         double timeE;
         double timeEomp;
         double timeM;
-        double mFractionSamplePoints;
         AffineTransformation::pointer mTransformation;
         CoherentPointDrift::TransformationType mTransformationType;
     };

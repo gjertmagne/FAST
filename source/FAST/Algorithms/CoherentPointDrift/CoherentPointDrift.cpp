@@ -20,16 +20,15 @@ namespace fast {
         createOutputPort<Mesh>(0);
         mVariance = 100;
         mScale = 1.0;
-        mW = 0.5;
         mIteration = 0;
+        mTransformation = AffineTransformation::New();
+        mUniformWeight = 0.5;
         mMaxIterations = 100;
         mTolerance = 1e-4;
         mIterationError = mTolerance + 1.0;
-        mFractionSamplePoints = 1.0;
+        mTransformationType = CoherentPointDrift::RIGID;
         timeE = 0.0;
         timeM = 0.0;
-        mTransformationType = CoherentPointDrift::RIGID;
-        mTransformation = AffineTransformation::New();
     }
 
 
@@ -55,6 +54,14 @@ namespace fast {
 
     void CoherentPointDrift::setMaximumIterations(unsigned char maxIterations) {
         mMaxIterations = maxIterations;
+    }
+
+    void CoherentPointDrift::setUniformWeight(float uniformWeight) {
+        mUniformWeight = uniformWeight;
+    }
+
+    void CoherentPointDrift::setTolerance(double tolerance) {
+        mTolerance = tolerance;
     }
 
     AffineTransformation::pointer CoherentPointDrift::getOutputTransformation() {
@@ -190,11 +197,11 @@ namespace fast {
         addOutputData(0, movingMesh);
 
         // Print some matrices
-        std::cout << "\n*****************************************\n";
-        std::cout << "Registration matrix: \n" << registration.matrix() << std::endl;
-        std::cout << "Final registration matrix: \n" << registrationTransformTotal.matrix() << std::endl;
-        std::cout << "Registered transform * existingTransform (should be identity): \n"
-            << registrationTransformTotal * existingTransform.matrix() << std::endl;
+//        std::cout << "\n*****************************************\n";
+//        std::cout << "Registration matrix: \n" << registration.matrix() << std::endl;
+//        std::cout << "Final registration matrix: \n" << registrationTransformTotal.matrix() << std::endl;
+//        std::cout << "Registered transform * existingTransform (should be identity): \n"
+//            << registrationTransformTotal * existingTransform.matrix() << std::endl;
     }
 
 
@@ -236,7 +243,7 @@ namespace fast {
          * Normal distribution
          * ******************/
         double c = pow(2*(double)EIGEN_PI*mVariance, (double)mNumDimensions/2.0)
-                   * (mW/(1-mW)) * (double)mNumMovingPoints/(double)mNumFixedPoints;
+                   * (mUniformWeight/(1-mUniformWeight)) * (double)mNumMovingPoints/(double)mNumFixedPoints;
 
         *probabilityMatrix /= -2.0 * mVariance;
         *probabilityMatrix = probabilityMatrix->array().exp();
@@ -329,10 +336,6 @@ namespace fast {
         currentRegistrationTransform.matrix() = registrationMatrix;
         mTransformation->setTransform(currentRegistrationTransform);
 
-        int itTemp = mIteration;
-//        std::cout << "\nITERATION " << itTemp << std::endl;
-//        std::cout << "scale: " << mScale << std::endl;
-
 
         /* *************************
          * Transform the point cloud
@@ -350,10 +353,6 @@ namespace fast {
                 (traceXPX - 2 * mScale * ARt.trace() + mScale * mScale * traceYPY) / (2 * mVariance)
                 + (mNp * mNumDimensions)/2 * log(mVariance);
         mIterationError = abs(mObjectiveFunction - objectiveFunctionOld);
-
-//        std::cout << "Change in error this iteration: " << mIterationError << std::endl;
-//        std::cout << "Total transformation matrix so far:\n"
-//                  << mTransformation->getTransform().matrix() << std::endl;
     }
 
 }
