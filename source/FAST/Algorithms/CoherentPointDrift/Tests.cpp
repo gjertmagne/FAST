@@ -40,6 +40,7 @@ void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, 
         }
     }
 
+    // Add noise to point cloud
     auto numNoisePoints = (unsigned int) ceil(noiseSampleRatio * numSamplePoints);
     float minX, minY, minZ;
     Vector3f position0 = vertices[0].getPosition();
@@ -70,6 +71,7 @@ void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, 
         newVertices.push_back(noise);
     }
 
+    // Update point cloud to include the removed points and added noise
     pointCloud->create(newVertices);
 }
 
@@ -83,7 +85,7 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
 
     // Modify point clouds
     float fractionOfPointsToKeep = 0.8;
-    float noiseLevel = 0.2;
+    float noiseLevel = 0.5;
     modifyPointCloud(cloud2, fractionOfPointsToKeep, noiseLevel);
     modifyPointCloud(cloud3, fractionOfPointsToKeep, noiseLevel);
 
@@ -92,22 +94,24 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     float uniformWeight = 0.5;
     double tolerance = 1e-4;
 
+    // Create transformation for moving point cloud
+    Vector3f translation(-0.04f, 0.05f, -0.02f);
+    auto transform = AffineTransformation::New();
+    Affine3f affine = Affine3f::Identity();
+//    affine.translate(translation);
+    affine.rotate(Eigen::AngleAxisf(3.141592f / 3.0f, Eigen::Vector3f::UnitY()));
+    affine.scale(0.5);
+    transform->setTransform(affine);
+
+    // Apply transform to one point cloud
+    cloud2->getSceneGraphNode()->setTransformation(transform);
+
+    // Apply transform to a point cloud not registered (for reference)
+    cloud3->getSceneGraphNode()->setTransformation(transform);
+
+    // Run for different numbers of iterations
     std::vector<unsigned char> iterations = {100};
     for(auto maxIterations : iterations) {
-        // Create transformation for moving point cloud
-        Vector3f translation(-0.04f, 0.05f, -0.02f);
-        auto transform = AffineTransformation::New();
-        Affine3f affine = Affine3f::Identity();
-        affine.translate(translation);
-        affine.rotate(Eigen::AngleAxisf(3.14f / 3.0f, Eigen::Vector3f::UnitY()));
-        affine.scale(0.6);
-        transform->setTransform(affine);
-
-        // Apply transform to one point cloud
-        cloud2->getSceneGraphNode()->setTransformation(transform);
-
-        // Apply transform to a point cloud not registered
-        cloud3->getSceneGraphNode()->setTransformation(transform);
 
         // Run Coherent Point Drift
         auto cpd = CoherentPointDrift::New();

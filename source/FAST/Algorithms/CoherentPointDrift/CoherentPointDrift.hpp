@@ -22,10 +22,10 @@ namespace fast {
         AffineTransformation::pointer getOutputTransformation();
     private:
         CoherentPointDrift();
-        void expectation(MatrixXf* probabilityMatrix,
-                         MatrixXf* fixedPoints, MatrixXf* movingPoints);
-        void maximization(MatrixXf* probabilityMatrix,
-                          MatrixXf* fixedPoints, MatrixXf* movingPoints);
+        void expectation(MatrixXf& probabilityMatrix,
+                         MatrixXf& fixedPoints, MatrixXf& movingPoints);
+        void maximization(MatrixXf& probabilityMatrix,
+                          MatrixXf& fixedPoints, MatrixXf& movingPoints);
         void execute();
 
         MatrixXf mProbabilityMatrix;            // P
@@ -46,8 +46,15 @@ namespace fast {
         unsigned char mIteration;
         unsigned char mMaxIterations;
         double timeE;
-        double timeEomp;
+        double timeEDistances;
+        double timeENormal;
+        double timeEPosterior;
         double timeM;
+        double timeMUseful;
+        double timeMCenter;
+        double timeMSVD;
+        double timeMParameters;
+        double timeMUpdate;
         AffineTransformation::pointer mTransformation;
         CoherentPointDrift::TransformationType mTransformationType;
     };

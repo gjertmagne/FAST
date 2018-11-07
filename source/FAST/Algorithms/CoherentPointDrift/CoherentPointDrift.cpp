@@ -5,11 +5,11 @@
 #undef min
 #undef max
 #include <limits>
-#include <random>
+//#include <random>
 #include <unordered_set>
 
 #include <iostream>
-#include <ctime>
+//#include <ctime>
 #include <FAST/Visualization/ImageRenderer/ImageRenderer.hpp>
 
 namespace fast {
@@ -28,7 +28,15 @@ namespace fast {
         mIterationError = mTolerance + 1.0;
         mTransformationType = CoherentPointDrift::RIGID;
         timeE = 0.0;
+        timeEDistances = 0.0;
+        timeENormal = 0.0;
+        timeEPosterior = 0.0;
         timeM = 0.0;
+        timeMUseful = 0.0;
+        timeMCenter = 0.0;
+        timeMSVD = 0.0;
+        timeMParameters = 0.0;
+        timeMUpdate = 0.0;
     }
 
 
@@ -101,7 +109,6 @@ namespace fast {
 
         // Apply existing transformation (for testing) to moving point cloud
         auto existingTransform = SceneGraph::getEigenAffineTransformationFromData(movingMesh);
-        std::cout << "Existing transform: \n" << existingTransform.affine() << std::endl;
         movingPoints = movingPoints * existingTransform.linear().transpose();
         movingPoints += existingTransform.translation().transpose().replicate(mNumMovingPoints, 1);
 //        movingPoints = movingPoints.rowwise().homogeneous() * existingTransform.affine();
@@ -112,12 +119,16 @@ namespace fast {
         std::cout << "mNumFixedPoints = " << mNumFixedPoints
                   << ", mNumMovingPoints = " << mNumMovingPoints << std::endl;
         std::cout << "Dimension = " << mNumDimensions << std::endl;
+//        std::cout << "Existing transform: \n" << existingTransform.affine() << std::endl;
 
 
         /* *************
          * Normalization
          * ************/
-        // Center point clouds around origin, zero mean
+
+        double timeStartNormalization = omp_get_wtime();
+
+        // Center point clouds around origin, i.e. zero mean
         MatrixXf fixedMeanInitial = fixedPoints.colwise().sum() / mNumFixedPoints;
         MatrixXf movingMeanInitial = movingPoints.colwise().sum() / mNumMovingPoints;
         fixedPoints -= fixedMeanInitial.replicate(mNumFixedPoints, 1);
@@ -129,6 +140,8 @@ namespace fast {
         double movingScale = sqrt(movingPoints.cwiseProduct(movingPoints).sum() / (double)mNumMovingPoints);
         fixedPoints /= fixedScale;
         movingPoints /= movingScale;
+
+        double timeEndNormalization = omp_get_wtime();
 
 
         // Initialize the variance in the CPD registration
@@ -150,26 +163,30 @@ namespace fast {
         // Initialize the probability matrix of correspondences
         mProbabilityMatrix = MatrixXf::Zero(mNumMovingPoints, mNumFixedPoints);
 
-        clock_t startEM = clock();
         double timeStartEM = omp_get_wtime();
 
         while (mIteration < mMaxIterations && mIterationError > mTolerance) {
-            expectation(&mProbabilityMatrix, &fixedPoints, &movingPoints);
-            maximization(&mProbabilityMatrix, &fixedPoints, &movingPoints);
+            expectation(mProbabilityMatrix, fixedPoints, movingPoints);
+            maximization(mProbabilityMatrix, fixedPoints, movingPoints);
             mIteration++;
         }
 
-        clock_t endEM = clock();
         double timeEndEM = omp_get_wtime();
-        double timeEM = (double) (endEM-startEM) / CLOCKS_PER_SEC;
-        double totalTimeEMomp = timeEndEM - timeStartEM;
+        double timeTotalEM = timeEndEM - timeStartEM;
 
-        std::cout << "EM converged in " << mIteration-1 << " iterations in " << totalTimeEMomp << " s.\n";
-        std::cout << "Time spent on expectation (omp time): " << timeEomp << " s\n";
-//        std::cout << "Time spent on expectation: " << timeE/1000.0 << " s\n";
-        std::cout << "Time spent on maximization: " << timeM/1000.0 << " s" << std::endl;
-        std::cout << "Remaining time spent on updating transform and point clouds\n";
-
+        std::cout << "\nCOMPUTATION TIMES:\n";
+        std::cout << "Initial normalization: " << timeEndNormalization-timeStartNormalization << " s.\n";
+        std::cout << "EM converged in " << mIteration-1 << " iterations in " << timeTotalEM << " s.\n";
+        std::cout << "Time spent on expectation: " << timeE << " s\n";
+        std::cout << "      - Calculating distances between points: " << timeEDistances << " s.\n";
+        std::cout << "      - Normal distribution: " << timeENormal << " s.\n";
+        std::cout << "      - Posterior GMM probabilities: " << timeEPosterior << " s.\n";
+        std::cout << "Time spent on maximization: " << timeM << " s" << std::endl;
+        std::cout << "      - Calculating P1, Pt1, Np: " << timeMUseful << " s.\n";
+        std::cout << "      - Centering point clouds: " << timeMCenter << " s.\n";
+        std::cout << "      - SVD: " << timeMSVD << " s.\n";
+        std::cout << "      - Calculation transformation parameters: " << timeMParameters << " s.\n";
+        std::cout << "      - Updating transformation and error: " << timeMUpdate << " s.\n";
 
         /* ***********************************************
          * Denormalize and set total transformation matrix
@@ -206,10 +223,9 @@ namespace fast {
 
 
     void CoherentPointDrift::expectation(
-                    MatrixXf* probabilityMatrix,
-                    MatrixXf* fixedPoints, MatrixXf* movingPoints) {
+                    MatrixXf& probabilityMatrix,
+                    MatrixXf& fixedPoints, MatrixXf& movingPoints) {
 
-//        clock_t startE = clock();
         double timeStartE = omp_get_wtime();
 
         /* **********************************************************************************
@@ -232,26 +248,35 @@ namespace fast {
         // OpenMP implementation
         #pragma omp parallel for collapse(2)
         for (int i = 0; i < mNumMovingPoints; ++i) {
-            for (int j = 0; j < mNumFixedPoints; ++ j) {
-                VectorXf diff = fixedPoints->row(j) - movingPoints->row(i);
-                probabilityMatrix->row(i)[j] = diff.squaredNorm();
+            for (int j = 0; j < mNumFixedPoints; ++j) {
+                VectorXf diff = fixedPoints.row(j) - movingPoints.row(i);
+                probabilityMatrix(i, j) = diff.squaredNorm();
             }
         }
 
+        timeEDistances += omp_get_wtime() - timeStartE;
 
         /* *******************
          * Normal distribution
          * ******************/
+
+        double timeStartENormal = omp_get_wtime();
+
         double c = pow(2*(double)EIGEN_PI*mVariance, (double)mNumDimensions/2.0)
                    * (mUniformWeight/(1-mUniformWeight)) * (double)mNumMovingPoints/(double)mNumFixedPoints;
 
-        *probabilityMatrix /= -2.0 * mVariance;
-        *probabilityMatrix = probabilityMatrix->array().exp();
+        probabilityMatrix /= -2.0 * mVariance;
+        probabilityMatrix = probabilityMatrix.array().exp();
+
+        timeENormal += omp_get_wtime() -timeStartENormal;
 
         /* ***************************************************
          * Calculate posterior probabilities of GMM components
          * **************************************************/
-        MatrixXf denominatorRow = probabilityMatrix->colwise().sum();
+
+        double timeStartPosterior = omp_get_wtime();
+
+        MatrixXf denominatorRow = probabilityMatrix.colwise().sum();
         denominatorRow =  denominatorRow.array() + c;
 
         // Ensure that one does not divide by zero
@@ -259,36 +284,38 @@ namespace fast {
         denominatorRow = denominatorRow.cwiseMax(shouldBeLargerThanEpsilon);
 
         MatrixXf denominator = denominatorRow.replicate(mNumMovingPoints, 1);
-        *probabilityMatrix = probabilityMatrix->cwiseQuotient(denominator);
+        probabilityMatrix = probabilityMatrix.cwiseQuotient(denominator);
 
 
-//        clock_t endE = clock();
-//        timeE += (double) (endE-startE) / CLOCKS_PER_SEC * 1000.0;
         double timeEndE = omp_get_wtime();
-        timeEomp += timeEndE - timeStartE;
+        timeEPosterior += omp_get_wtime() - timeStartPosterior;
+        timeE += timeEndE - timeStartE;
     }
 
-    void CoherentPointDrift::maximization(MatrixXf* probabilityMatrix,
-            MatrixXf* fixedPoints, MatrixXf* movingPoints) {
+    void CoherentPointDrift::maximization(MatrixXf& probabilityMatrix,
+            MatrixXf& fixedPoints, MatrixXf& movingPoints) {
 
-        clock_t startM = clock();
+        double startM = omp_get_wtime();
 
         // Define some useful matrix sums
-        mPt1 = probabilityMatrix->transpose().rowwise().sum();      // mNumFixedPoints x 1
-        mP1 = probabilityMatrix->rowwise().sum();                   // mNumMovingPoints x 1
-        mNp = mPt1.sum();                                           // 1 (sum of all P elements
+        mPt1 = probabilityMatrix.transpose().rowwise().sum();      // mNumFixedPoints x 1
+        mP1 = probabilityMatrix.rowwise().sum();                   // mNumMovingPoints x 1
+        mNp = mPt1.sum();                                           // 1 (sum of all P elements)
 
+        double timeEndMUseful = omp_get_wtime();
 
         // Estimate new mean vectors
-        MatrixXf fixedMean = fixedPoints->transpose() * mPt1 / mNp;
-        MatrixXf movingMean = movingPoints->transpose() * mP1 / mNp;
+        MatrixXf fixedMean = fixedPoints.transpose() * mPt1 / mNp;
+        MatrixXf movingMean = movingPoints.transpose() * mP1 / mNp;
 
         // Center point sets around estimated mean
-        MatrixXf fixedPointsCentered = *fixedPoints - fixedMean.transpose().replicate(mNumFixedPoints, 1);
-        MatrixXf movingPointsCentered = *movingPoints - movingMean.transpose().replicate(mNumMovingPoints, 1);
+        MatrixXf fixedPointsCentered = fixedPoints - fixedMean.transpose().replicate(mNumFixedPoints, 1);
+        MatrixXf movingPointsCentered = movingPoints - movingMean.transpose().replicate(mNumMovingPoints, 1);
+
+        double timeEndCenter = omp_get_wtime();
 
         // Single value decomposition (SVD)
-        const MatrixXf A = fixedPointsCentered.transpose() * probabilityMatrix->transpose() * movingPointsCentered;
+        const MatrixXf A = fixedPointsCentered.transpose() * probabilityMatrix.transpose() * movingPointsCentered;
         auto svdU =  A.bdcSvd(Eigen::ComputeThinU);
         auto svdV =  A.bdcSvd(Eigen::ComputeThinV);
         const MatrixXf* U = &svdU.matrixU();
@@ -298,6 +325,7 @@ namespace fast {
         Eigen::RowVectorXf C = Eigen::RowVectorXf::Ones(mNumDimensions);
         C[mNumDimensions-1] = UVt.determinant();
 
+        double timeEndMSVD = omp_get_wtime();
 
         /* ************************************************************
          * Find transformation parameters: rotation, scale, translation
@@ -318,9 +346,7 @@ namespace fast {
             mVariance = mTolerance / 10;
         }
 
-        clock_t endM = clock();
-        timeM += (double) (endM-startM) / CLOCKS_PER_SEC * 1000.0;
-
+        double timeEndMParameters = omp_get_wtime();
 
         /* ****************
          * Update transform
@@ -341,18 +367,29 @@ namespace fast {
          * Transform the point cloud
          * ************************/
         MatrixXf movingPointsTransformed =
-                mScale * *movingPoints * mRotation.transpose() + mTranslation.transpose().replicate(mNumMovingPoints, 1);
-        *movingPoints = movingPointsTransformed;
+                mScale * movingPoints * mRotation.transpose() + mTranslation.transpose().replicate(mNumMovingPoints, 1);
+        movingPoints = movingPointsTransformed;
 
 
         /* ******************************************
-         * Calculate change in the objection function
+         * Calculate change in the objective function
          * *****************************************/
         double objectiveFunctionOld = mObjectiveFunction;
         mObjectiveFunction =
                 (traceXPX - 2 * mScale * ARt.trace() + mScale * mScale * traceYPY) / (2 * mVariance)
                 + (mNp * mNumDimensions)/2 * log(mVariance);
         mIterationError = abs(mObjectiveFunction - objectiveFunctionOld);
+
+
+        double endM = omp_get_wtime();
+        timeM += endM - startM;
+        timeMUseful += timeEndMUseful - startM;
+        timeMCenter += timeEndMUseful - timeEndMUseful;
+        timeMSVD += timeEndMSVD - timeEndCenter;
+        timeMParameters += timeEndMParameters - timeEndMSVD;
+        timeMUpdate += endM - timeEndMParameters;
+
+
     }
 
 }
