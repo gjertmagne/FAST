@@ -18,13 +18,13 @@ Mesh::pointer getPointCloud() {
     return port->getNextFrame<Mesh>();
 }
 
-void modifyPointCloud(Mesh::pointer pointCloud, double fractionOfPointsToKeep, double fractionNoisePoints) {
+void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, double noiseSampleRatio=0.0) {
     MeshAccess::pointer accessFixedSet = pointCloud->getMeshAccess(ACCESS_READ);
     std::vector<MeshVertex> vertices = accessFixedSet->getVertices();
 
+    // Sample the preferred amount of points from the point cloud
     auto numVertices = (unsigned int) vertices.size();
     auto numSamplePoints = (unsigned int) ceil(fractionOfPointsToKeep * numVertices);
-//    std::vector<MeshVertex> newVertices[numSamplePoints];
     std::vector<MeshVertex> newVertices;
 
     std::unordered_set<int> movingIndices;
@@ -34,13 +34,42 @@ void modifyPointCloud(Mesh::pointer pointCloud, double fractionOfPointsToKeep, d
     while (sampledPoints < numSamplePoints) {
         unsigned int index = distribution(distributionEngine);
         if (movingIndices.count(index) < 1) {
-//            newVertices[sampledPoints].insert(vertices[index]);
-//            newVertices->at(sampledPoints) = vertices.at(index);
             newVertices.push_back(vertices.at(index));
             movingIndices.insert(index);
             ++sampledPoints;
         }
     }
+
+    auto numNoisePoints = (unsigned int) ceil(noiseSampleRatio * numSamplePoints);
+    float minX, minY, minZ;
+    Vector3f position0 = vertices[0].getPosition();
+    minX = position0[0];
+    minY = position0[1];
+    minZ = position0[2];
+    float maxX = minX, maxY = minY, maxZ = minZ;
+    for (auto &vertex : vertices) {
+        Vector3f position = vertex.getPosition();
+        if (position[0] < minX) {minX = position[0]; }
+        if (position[0] > maxX) {maxX = position[0]; }
+        if (position[1] < minY) {minY = position[1]; }
+        if (position[1] > maxY) {maxY = position[1]; }
+        if (position[2] < minZ) {minZ = position[2]; }
+        if (position[2] > maxZ) {maxZ = position[2]; }
+    }
+
+    std::uniform_real_distribution<float> distributionNoiseX(minX, maxX);
+    std::uniform_real_distribution<float> distributionNoiseY(minY, maxY);
+    std::uniform_real_distribution<float> distributionNoiseZ(minZ, maxZ);
+
+    for (int noiseAdded = 0; noiseAdded < numNoisePoints; noiseAdded++) {
+        float noiseX = distributionNoiseX (distributionEngine);
+        float noiseY = distributionNoiseY (distributionEngine);
+        float noiseZ = distributionNoiseZ (distributionEngine);
+        Vector3f noisePosition = Vector3f(noiseX, noiseY, noiseZ);
+        MeshVertex noise = MeshVertex(noisePosition);
+        newVertices.push_back(noise);
+    }
+
     pointCloud->create(newVertices);
 }
 
@@ -53,12 +82,17 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     auto cloud3 = getPointCloud();
 
     // Modify point clouds
-    double fractionOfPointsToKeep = 0.5;
-    double noiseLevel = 0.0;
+    float fractionOfPointsToKeep = 0.8;
+    float noiseLevel = 0.2;
     modifyPointCloud(cloud2, fractionOfPointsToKeep, noiseLevel);
     modifyPointCloud(cloud3, fractionOfPointsToKeep, noiseLevel);
 
-    std::vector<unsigned char> iterations = {0, 50};
+    // Set registration settings
+    CoherentPointDrift::TransformationType transformationType = CoherentPointDrift::RIGID;
+    float uniformWeight = 0.5;
+    double tolerance = 1e-4;
+
+    std::vector<unsigned char> iterations = {100};
     for(auto maxIterations : iterations) {
         // Create transformation for moving point cloud
         Vector3f translation(-0.04f, 0.05f, -0.02f);
@@ -68,7 +102,6 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
         affine.rotate(Eigen::AngleAxisf(3.14f / 3.0f, Eigen::Vector3f::UnitY()));
         affine.scale(0.6);
         transform->setTransform(affine);
-
 
         // Apply transform to one point cloud
         cloud2->getSceneGraphNode()->setTransformation(transform);
@@ -80,7 +113,10 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
         auto cpd = CoherentPointDrift::New();
         cpd->setFixedMesh(cloud1);
         cpd->setMovingMesh(cloud2);
+        cpd->setTransformationType(transformationType);
         cpd->setMaximumIterations(maxIterations);
+        cpd->setTolerance(tolerance);
+        cpd->setUniformWeight(uniformWeight);
 
         auto renderer = VertexRenderer::New();
         renderer->addInputData(cloud1, Color::Green(), 3.0);                        // Fixed points
