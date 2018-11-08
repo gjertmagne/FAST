@@ -5,6 +5,7 @@
 #include "FAST/Testing.hpp"
 #include "FAST/Visualization/VertexRenderer/VertexRenderer.hpp"
 #include "CoherentPointDrift.hpp"
+#include "Rigid.hpp"
 
 #include <random>
 #include <iostream>
@@ -67,7 +68,7 @@ void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, 
         float noiseY = distributionNoiseY (distributionEngine);
         float noiseZ = distributionNoiseZ (distributionEngine);
         Vector3f noisePosition = Vector3f(noiseX, noiseY, noiseZ);
-        MeshVertex noise = MeshVertex(noisePosition);
+        MeshVertex noise = MeshVertex(noisePosition, Vector3f(1, 0, 0), Color::Black());
         newVertices.push_back(noise);
     }
 
@@ -90,7 +91,6 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     modifyPointCloud(cloud3, fractionOfPointsToKeep, noiseLevel);
 
     // Set registration settings
-    CoherentPointDrift::TransformationType transformationType = CoherentPointDrift::RIGID;
     float uniformWeight = 0.5;
     double tolerance = 1e-4;
 
@@ -114,10 +114,11 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     for(auto maxIterations : iterations) {
 
         // Run Coherent Point Drift
-        auto cpd = CoherentPointDrift::New();
+        std::cout << "Ready to generate new rigid\n";
+        auto cpd = CoherentPointDriftRigid::New();
+        std::cout << "Rigid object created\n";
         cpd->setFixedMesh(cloud1);
         cpd->setMovingMesh(cloud2);
-        cpd->setTransformationType(transformationType);
         cpd->setMaximumIterations(maxIterations);
         cpd->setTolerance(tolerance);
         cpd->setUniformWeight(uniformWeight);
