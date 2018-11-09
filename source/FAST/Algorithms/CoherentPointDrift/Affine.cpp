@@ -111,7 +111,6 @@ namespace fast {
         MatrixXf ABt = A * mAffineMatrix.transpose();
         mVariance = ( XPX.trace() - ABt.trace() ) / (mNp * mNumDimensions);
         if (mVariance < 0) {
-//            mVariance = mTolerance / 10;
             mVariance = abs(mVariance);
         } else if (mVariance == 0){
             mVariance = 10.0 * std::numeric_limits<double>::epsilon();

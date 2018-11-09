@@ -147,8 +147,11 @@ namespace fast {
 
         // Update variance
         mVariance = ( traceXPX - mScale * traceAtR ) / (mNp * mNumDimensions);
-        if (mVariance <= 0) {
-            mVariance = mTolerance / 10;
+        if (mVariance < 0) {
+            mVariance = abs(mVariance);
+        } else if (mVariance == 0){
+            mVariance = 10.0 * std::numeric_limits<double>::epsilon();
+            mRegistrationConverged = true;
         }
         double timeEndMParameters = omp_get_wtime();
 
@@ -182,7 +185,7 @@ namespace fast {
         mObjectiveFunction =
                 (traceXPX - 2 * mScale * ARt.trace() + mScale * mScale * traceYPY) / (2 * mVariance)
                 + (mNp * mNumDimensions)/2 * log(mVariance);
-        mIterationError = abs(mObjectiveFunction - objectiveFunctionOld);
+        mIterationError = abs( (mObjectiveFunction - objectiveFunctionOld) / objectiveFunctionOld);
         mRegistrationConverged =  mIterationError <= mTolerance;
 
 
