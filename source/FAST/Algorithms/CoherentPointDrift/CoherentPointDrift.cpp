@@ -128,10 +128,12 @@ namespace fast {
         double timeStartEM = omp_get_wtime();
 
         while (mIteration < mMaxIterations && !mRegistrationConverged) {
+//            std::cout << "ITERATION " << (int) mIteration << std::endl;
             expectation(mFixedPoints, mMovingPoints);
             maximization(mFixedPoints, mMovingPoints);
             mIteration++;
         }
+
 
         /* *****************
          * Computation times
