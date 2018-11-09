@@ -6,6 +6,7 @@
 #include "FAST/Visualization/VertexRenderer/VertexRenderer.hpp"
 #include "CoherentPointDrift.hpp"
 #include "Rigid.hpp"
+#include "Affine.hpp"
 
 #include <random>
 #include <iostream>
@@ -85,22 +86,27 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     auto cloud3 = getPointCloud();
 
     // Modify point clouds
-    float fractionOfPointsToKeep = 0.8;
-    float noiseLevel = 0.5;
+    float fractionOfPointsToKeep = 1.0;
+    float noiseLevel = 0.0;
     modifyPointCloud(cloud2, fractionOfPointsToKeep, noiseLevel);
     modifyPointCloud(cloud3, fractionOfPointsToKeep, noiseLevel);
 
     // Set registration settings
-    float uniformWeight = 0.5;
+    float uniformWeight = 0.0;
     double tolerance = 1e-4;
 
     // Create transformation for moving point cloud
     Vector3f translation(-0.04f, 0.05f, -0.02f);
     auto transform = AffineTransformation::New();
+    MatrixXf deformation = Matrix3f::Identity();
+    deformation(0, 0) = 1.5;
+    deformation(0, 1) = 1.5;
+    deformation(1, 0) = 0.0;
     Affine3f affine = Affine3f::Identity();
-//    affine.translate(translation);
+    affine.translate(translation);
     affine.rotate(Eigen::AngleAxisf(3.141592f / 3.0f, Eigen::Vector3f::UnitY()));
     affine.scale(0.5);
+    affine.linear() += deformation;
     transform->setTransform(affine);
 
     // Apply transform to one point cloud
@@ -114,9 +120,7 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     for(auto maxIterations : iterations) {
 
         // Run Coherent Point Drift
-        std::cout << "Ready to generate new rigid\n";
-        auto cpd = CoherentPointDriftRigid::New();
-        std::cout << "Rigid object created\n";
+        auto cpd = CoherentPointDriftAffine::New();
         cpd->setFixedMesh(cloud1);
         cpd->setMovingMesh(cloud2);
         cpd->setMaximumIterations(maxIterations);

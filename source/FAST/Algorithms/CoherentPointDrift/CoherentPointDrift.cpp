@@ -66,8 +66,8 @@ namespace fast {
         }
     }
 
-    // Apply existing transformation (for testing) to moving point cloud
     void CoherentPointDrift::applyExistingTransform(Affine3f existingTransform) {
+        // Apply existing transformation (for testing) to moving point cloud
         mMovingPoints = mMovingPoints * existingTransform.linear().transpose();
         mMovingPoints += existingTransform.translation().transpose().replicate(mNumMovingPoints, 1);
 //        movingPoints = movingPoints.rowwise().homogeneous() * existingTransform.affine();
@@ -162,6 +162,7 @@ namespace fast {
         normalization.translate((Vector3f) -(mMovingMeanInitial).transpose());
 
         // Denormalize moving point set
+
         mScale *= mFixedNormalizationScale / mMovingNormalizationScale;
         Affine3f registration = mTransformation->getTransform();
         registration.scale((float) mScale);
@@ -180,6 +181,7 @@ namespace fast {
 
         // Print some matrices
 //        std::cout << "\n*****************************************\n";
+//        std::cout << "Existing transform: \n" << existingTransform.matrix() << std::endl;
 //        std::cout << "Registration matrix: \n" << registration.matrix() << std::endl;
 //        std::cout << "Final registration matrix: \n" << registrationTransformTotal.matrix() << std::endl;
 //        std::cout << "Registered transform * existingTransform (should be identity): \n"
