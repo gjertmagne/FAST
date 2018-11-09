@@ -8,7 +8,7 @@ namespace fast {
 
     CoherentPointDriftAffine::CoherentPointDriftAffine() {
         mScale = 1.0;
-        mIterationError = mTolerance + 1.0;
+        mIterationError = mTolerance + 10.0;
         mTransformationType = TransformationType::AFFINE;
     }
 
@@ -110,8 +110,12 @@ namespace fast {
         // Update variance
         MatrixXf ABt = A * mAffineMatrix.transpose();
         mVariance = ( XPX.trace() - ABt.trace() ) / (mNp * mNumDimensions);
-        if (mVariance <= 0) {
-            mVariance = mTolerance / 10;
+        if (mVariance < 0) {
+//            mVariance = mTolerance / 10;
+            mVariance = abs(mVariance);
+        } else if (mVariance == 0){
+            mVariance = 10.0 * std::numeric_limits<double>::epsilon();
+            mRegistrationConverged = true;
         }
         double timeEndMParameters = omp_get_wtime();
 
@@ -122,7 +126,6 @@ namespace fast {
         Affine3f iterationTransform = Affine3f::Identity();
         iterationTransform.translation() = Vector3f(mTranslation);
         iterationTransform.linear() = mAffineMatrix;
-//        iterationTransform.scale(20.0);
 
         Affine3f currentRegistrationTransform;
         MatrixXf registrationMatrix = iterationTransform.matrix() * mTransformation->getTransform().matrix();
@@ -145,7 +148,7 @@ namespace fast {
         mObjectiveFunction =
                 (XPX.trace() - 2 * ABt.trace() + YPY.trace() ) / (2 * mVariance)
                 + (mNp * mNumDimensions)/2 * log(mVariance);
-        mIterationError = abs(mObjectiveFunction - objectiveFunctionOld);
+        mIterationError = abs( (mObjectiveFunction - objectiveFunctionOld) / objectiveFunctionOld);
         mRegistrationConverged =  mIterationError <= mTolerance;
 
         double endM = omp_get_wtime();
