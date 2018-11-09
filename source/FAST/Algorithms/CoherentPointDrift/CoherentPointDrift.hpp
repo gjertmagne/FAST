@@ -27,18 +27,16 @@ namespace fast {
         void execute();
         MatrixXf mFixedPoints;
         MatrixXf mMovingPoints;
-        std::shared_ptr<Mesh> mFixedMesh;
-        std::shared_ptr<Mesh> mMovingMesh;
         MatrixXf mMovingMeanInitial;
         MatrixXf mFixedMeanInitial;
         unsigned int mNumFixedPoints;           // N
         unsigned int mNumMovingPoints;          // M
         unsigned int mNumDimensions;            // D
+        float mUniformWeight;                   // Weight of the uniform distribution
+        double mTolerance;                      // Convergence criteria for EM iterations
+        double mScale;                          // s
         double mFixedNormalizationScale;
         double mMovingNormalizationScale;
-        double mTolerance;                      // Convergence criteria for EM iterations
-        float mUniformWeight;                   // Weight of the uniform distribution
-        double mScale;                          // s
         AffineTransformation::pointer mTransformation;
         bool mRegistrationConverged;
         double mTimeStart;
@@ -52,6 +50,7 @@ namespace fast {
         double timeMSVD;
         double timeMParameters;
         double timeMUpdate;
+
     private:
         virtual void expectation(MatrixXf& fixedPoints, MatrixXf& movingPoints) = 0;
         virtual void maximization(MatrixXf& fixedPoints, MatrixXf& movingPoints) = 0;
@@ -62,13 +61,8 @@ namespace fast {
         void normalizePointSets();
         void denormalizePointSets();
 
-//        MatrixXf mProbabilityMatrix;            // P
-//        MatrixXf mPt1;                          // Colwise sum of P, then transpose
-//        MatrixXf mP1;                           // Rowwise sum of P
-//        MatrixXf mRotation;                     // R
-//        MatrixXf mTranslation;                  // t
-
-//        float mNp;                              // Sum of all elements in P
+        std::shared_ptr<Mesh> mFixedMesh;
+        std::shared_ptr<Mesh> mMovingMesh;
         unsigned char mIteration;
         unsigned char mMaxIterations;
         CoherentPointDrift::TransformationType mTransformationType;

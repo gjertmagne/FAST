@@ -3,5 +3,7 @@ fast_add_sources(
         CoherentPointDrift.hpp
         Rigid.cpp
         Rigid.hpp
+        Affine.cpp
+        Affine.hpp
 )
 fast_add_test_sources(Tests.cpp)

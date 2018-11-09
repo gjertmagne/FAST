@@ -1,5 +1,5 @@
-#ifndef FAST_RIGID_H
-#define FAST_RIGID_H
+#ifndef FAST_AFFINE_H
+#define FAST_AFFINE_H
 
 
 #include "FAST/AffineTransformation.hpp"
@@ -9,10 +9,10 @@
 
 namespace fast {
 
-    class FAST_EXPORT CoherentPointDriftRigid: public CoherentPointDrift {
-    FAST_OBJECT(CoherentPointDriftRigid);
+    class FAST_EXPORT CoherentPointDriftAffine: public CoherentPointDrift {
+    FAST_OBJECT(CoherentPointDriftAffine);
     public:
-        CoherentPointDriftRigid();
+        CoherentPointDriftAffine();
         void expectation(MatrixXf& fixedPoints, MatrixXf& movingPoints) override;
         void maximization(MatrixXf& fixedPoints, MatrixXf& movingPoints) override;
         void initializeVarianceAndMore() override;
@@ -21,18 +21,16 @@ namespace fast {
         MatrixXf mProbabilityMatrix;            // P
         MatrixXf mPt1;                          // Colwise sum of P, then transpose
         MatrixXf mP1;                           // Rowwise sum of P
-        MatrixXf mRotation;                     // R
+        MatrixXf mAffineMatrix;                 // B
         MatrixXf mTranslation;                  // t
         double mObjectiveFunction;              // Q
         double mVariance;                       // sigma^2
         double mIterationError;                 // Change in error from iteration to iteration
         float mNp;                              // Sum of all elements in P
         TransformationType mTransformationType;
-        //        double mScale;                          // s
-
     };
 
 }
 
 
-#endif //FAST_RIGID_H
+#endif //FAST_AFFINE_H
