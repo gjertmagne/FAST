@@ -20,6 +20,14 @@ Mesh::pointer getPointCloud() {
     return port->getNextFrame<Mesh>();
 }
 
+Mesh::pointer getBunny() {
+    auto importer = VTKMeshFileImporter::New();
+    importer->setFilename(Config::getTestDataPath() + "bunny.vtk");
+    auto port = importer->getOutputPort();
+    importer->update(0);
+    return port->getNextFrame<Mesh>();
+}
+
 void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, double noiseSampleRatio=0.0) {
     MeshAccess::pointer accessFixedSet = pointCloud->getMeshAccess(ACCESS_READ);
     std::vector<MeshVertex> vertices = accessFixedSet->getVertices();
@@ -81,18 +89,24 @@ void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, 
 TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
 
     // Load identical point clouds
-    auto cloud1 = getPointCloud();
-    auto cloud2 = getPointCloud();
-    auto cloud3 = getPointCloud();
+    auto cloud1 = getBunny();
+    auto cloud2 = getBunny();
+    auto cloud3 = getBunny();
+//    auto cloud1 = getPointCloud();
+//    auto cloud2 = getPointCloud();
+//    auto cloud3 = getPointCloud();
 
     // Modify point clouds
-    float fractionOfPointsToKeep = 0.5;
-    float noiseLevel = 0.4;
+    float fractionOfPointsToKeep = 0.2312;
+    float noiseLevel = 0.05;
+//    float fractionOfPointsToKeep = 0.8;
+//    float noiseLevel = 0.2;
+    modifyPointCloud(cloud1, fractionOfPointsToKeep, noiseLevel);
     modifyPointCloud(cloud2, fractionOfPointsToKeep, noiseLevel);
     modifyPointCloud(cloud3, fractionOfPointsToKeep, noiseLevel);
 
     // Set registration settings
-    float uniformWeight = 0.5;
+    float uniformWeight = 0.3;
     double tolerance = 1e-2;
 
     // Create transformation for moving point cloud
@@ -103,10 +117,10 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     deformation(0, 1) = 1.5;
     deformation(1, 0) = 0.0;
     Affine3f affine = Affine3f::Identity();
-    affine.translate(translation);
-    affine.rotate(Eigen::AngleAxisf(3.141592f / 40.0f, Eigen::Vector3f::UnitY()));
-    affine.scale(0.5);
-    affine.linear() += deformation;
+//    affine.translate(translation);
+    affine.rotate(Eigen::AngleAxisf(3.141592f / 180.0f * 50.0f, Eigen::Vector3f::UnitY()));
+//    affine.scale(0.5);
+//    affine.linear() += deformation;
     transform->setTransform(affine);
 
     // Apply transform to one point cloud
@@ -116,11 +130,11 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
     cloud3->getSceneGraphNode()->setTransformation(transform);
 
     // Run for different numbers of iterations
-    std::vector<unsigned char> iterations = {100};
+    std::vector<unsigned char> iterations = {50};
     for(auto maxIterations : iterations) {
 
         // Run Coherent Point Drift
-        auto cpd = CoherentPointDriftAffine::New();
+        auto cpd = CoherentPointDriftRigid::New();
         cpd->setFixedMesh(cloud1);
         cpd->setMovingMesh(cloud2);
         cpd->setMaximumIterations(maxIterations);
