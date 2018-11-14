@@ -147,8 +147,9 @@ namespace fast {
         std::cout << "Time spent on expectation: " << timeE << " s\n";
         std::cout << "      - Calculating distances between points: " << timeEDistances << " s.\n";
         std::cout << "      - Normal distribution: " << timeENormal << " s.\n";
-        std::cout << "      - Posterior GMM probabilities: " << timeEPosterior << " s.\n";
-        std::cout << "Time spent on maximization: " << timeM << " s" << std::endl;
+        std::cout << "      - Create denominator, no zero-elements: " << timeEPosterior << " s.\n";
+        std::cout << "      - Posterior GMM probabilities, division: " << timeEPosteriorDivision << " s.\n";
+        std::cout << "Time spent on maximization: " << timeM << " s\n";
         std::cout << "      - Calculating P1, Pt1, Np: " << timeMUseful << " s.\n";
         std::cout << "      - Centering point clouds: " << timeMCenter << " s.\n";
         std::cout << "      - SVD: " << timeMSVD << " s.\n";

@@ -44,6 +44,7 @@ namespace fast {
         double timeEDistances;
         double timeENormal;
         double timeEPosterior;
+        double timeEPosteriorDivision;
         double timeM;
         double timeMUseful;
         double timeMCenter;

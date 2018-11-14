@@ -19,8 +19,8 @@ namespace fast {
 
     private:
         MatrixXf mProbabilityMatrix;            // P
-        MatrixXf mPt1;                          // Colwise sum of P, then transpose
-        MatrixXf mP1;                           // Rowwise sum of P
+        VectorXf mPt1;                          // Colwise sum of P, then transpose
+        VectorXf mP1;                           // Rowwise sum of P
         MatrixXf mRotation;                     // R
         MatrixXf mTranslation;                  // t
         double mObjectiveFunction;              // Q

@@ -14,14 +14,17 @@ namespace fast {
 
     void CoherentPointDriftRigid::initializeVarianceAndMore() {
 
+        double tStartVar1 = omp_get_wtime();
         // Initialize the variance in the CPD registration
-        mVariance = (   (double)mNumMovingPoints * (mFixedPoints.transpose() * mFixedPoints).trace() +
-                        (double)mNumFixedPoints * (mMovingPoints.transpose() * mMovingPoints).trace() -
-                        2.0 * mFixedPoints.colwise().sum() * mMovingPoints.colwise().sum().transpose()  ) /
-                    (double)(mNumFixedPoints * mNumMovingPoints * mNumDimensions);
+        mVariance = ((double) mNumMovingPoints * (mFixedPoints.transpose() * mFixedPoints).trace() +
+                     (double) mNumFixedPoints * (mMovingPoints.transpose() * mMovingPoints).trace() -
+                     2.0 * mFixedPoints.colwise().sum() * mMovingPoints.colwise().sum().transpose()) /
+                    (double) (mNumFixedPoints * mNumMovingPoints * mNumDimensions);
 
         mObjectiveFunction = -mIterationError - double(mNumFixedPoints * mNumDimensions)/2 * log(mVariance);
         mProbabilityMatrix = MatrixXf::Zero(mNumMovingPoints, mNumFixedPoints);
+        mPt1 = VectorXf::Zero(mNumFixedPoints);
+        mP1 = VectorXf::Zero(mNumMovingPoints);
     }
 
 
@@ -34,78 +37,65 @@ namespace fast {
          * Let row i in P equal the squared distances from all fixed points to moving point i
          * *********************************************************************************/
 
-        /*
+        /* Implementation without OpenMP
         MatrixXf movingPointMatrix = MatrixXf::Zero(mNumMovingPoints, mNumFixedPoints);
         MatrixXf distances = MatrixXf::Zero(mNumMovingPoints, mNumFixedPoints);
         for (int i = 0; i < mNumMovingPoints; ++i) {
-            movingPointMatrix = movingPoints->row(i).replicate(mNumFixedPoints, 1);
-            distances = *fixedPoints - movingPoints->row(i).replicate(mNumFixedPoints, 1);
-            distances = *fixedPoints - movingPointMatrix;            // Distance between all fixed points and moving point i
+            movingPointMatrix = movingPoints.row(i).replicate(mNumFixedPoints, 1);
+            distances = fixedPoints - movingPoints.row(i).replicate(mNumFixedPoints, 1);
+            distances = fixedPoints - movingPointMatrix;            // Distance between all fixed points and moving point i
             distances = distances.cwiseAbs2();                            // Square distance components (3xN)
-            probabilityMatrix->row(i) = distances.rowwise().sum();   // Sum x, y, z components (1xN)
+            mProbabilityMatrix.row(i) = distances.rowwise().sum();   // Sum x, y, z components (1xN)
         }
         */
 
-        // OpenMP implementation
-#pragma omp parallel for collapse(2)
-        for (int i = 0; i < mNumMovingPoints; ++i) {
-            for (int j = 0; j < mNumFixedPoints; ++j) {
-                VectorXf diff = fixedPoints.row(j) - movingPoints.row(i);
-                mProbabilityMatrix(i, j) = diff.squaredNorm();
+        auto c = (float) (pow(2*(double)EIGEN_PI*mVariance, (double)mNumDimensions/2.0)
+                   * (mUniformWeight/(1-mUniformWeight)) * (float)mNumMovingPoints/mNumFixedPoints);
+
+        #pragma omp parallel for //collapse(2)
+            for (int col = 0; col < mNumFixedPoints; ++col) {
+                for (int row = 0; row < mNumMovingPoints; ++row) {
+                    double norm = (fixedPoints.row(col) - movingPoints.row(row)).squaredNorm();
+                    mProbabilityMatrix(row, col) = exp(norm / (-2.0 * mVariance));
+                }
             }
-        }
+        double timeEndFirstLoop = omp_get_wtime();
 
-//        std::cout << "E. M =  " << mNumMovingPoints << std::endl;
-//        std::cout << "E. N =  " << mNumFixedPoints << std::endl;
-//        std::cout << "E. Size of P: " << mProbabilityMatrix.rows() << ", " << mProbabilityMatrix.cols() << std::endl;
+        #pragma omp parallel for
+            for (int col = 0; col < mNumMovingPoints; ++col) {
+                float denom = mProbabilityMatrix.col(col).sum() + c;
+                mProbabilityMatrix.col(col) /= max(denom, Eigen::NumTraits<float>::epsilon() );
+            }
 
-
-        timeEDistances += omp_get_wtime() - timeStartE;
-
-        /* *******************
-         * Normal distribution
-         * ******************/
-
-        double timeStartENormal = omp_get_wtime();
-
-        double c = pow(2*(double)EIGEN_PI*mVariance, (double)mNumDimensions/2.0)
-                   * (mUniformWeight/(1-mUniformWeight)) * (double)mNumMovingPoints/(double)mNumFixedPoints;
-
-        mProbabilityMatrix /= -2.0 * mVariance;
-        mProbabilityMatrix = mProbabilityMatrix.array().exp();
-
-        timeENormal += omp_get_wtime() -timeStartENormal;
-
-        /* ***************************************************
-         * Calculate posterior probabilities of GMM components
-         * **************************************************/
-
-        double timeStartPosterior = omp_get_wtime();
-
-        MatrixXf denominatorRow = mProbabilityMatrix.colwise().sum();
-        denominatorRow =  denominatorRow.array() + c;
-
-        // Ensure that one does not divide by zero
-        MatrixXf shouldBeLargerThanEpsilon = Eigen::NumTraits<float>::epsilon() * MatrixXf::Ones(1, mNumFixedPoints);
-        denominatorRow = denominatorRow.cwiseMax(shouldBeLargerThanEpsilon);
-
-        MatrixXf denominator = denominatorRow.replicate(mNumMovingPoints, 1);
-        mProbabilityMatrix = mProbabilityMatrix.cwiseQuotient(denominator);
-
-
+        // Update computation times
         double timeEndE = omp_get_wtime();
-        timeEPosterior += omp_get_wtime() - timeStartPosterior;
+        timeEDistances += 0.0;
+        timeENormal += timeEndFirstLoop - timeStartE;
+        timeEPosterior += 0.0;
+        timeEPosteriorDivision += timeEndE - timeEndFirstLoop;
         timeE += timeEndE - timeStartE;
     }
 
     void CoherentPointDriftRigid::maximization(MatrixXf& fixedPoints, MatrixXf& movingPoints) {
         double startM = omp_get_wtime();
 
-        // Define some useful matrix sums
-        mPt1 = mProbabilityMatrix.transpose().rowwise().sum();      // mNumFixedPoints x 1
-        mP1 = mProbabilityMatrix.rowwise().sum();                   // mNumMovingPoints x 1
+        // Calculate some useful matrix reductions
+        mP1 = VectorXf::Zero(mNumMovingPoints);
+        #pragma omp parallel for
+            for (int col = 0; col < mNumFixedPoints; ++col) {
+                mPt1(col) = mProbabilityMatrix.col(col).sum();
+            }
+        #pragma omp parallel
+        {
+            VectorXf mP1Local = VectorXf::Zero(mNumMovingPoints);
+            #pragma omp for
+            for (int col = 0; col < mNumFixedPoints; ++col) {
+                mP1Local += mProbabilityMatrix.col(col);
+            }
+            #pragma omp critical
+            mP1 += mP1Local;
+        }
         mNp = mPt1.sum();                                           // 1 (sum of all P elements)
-
         double timeEndMUseful = omp_get_wtime();
 
         // Estimate new mean vectors
