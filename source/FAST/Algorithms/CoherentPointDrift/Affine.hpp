@@ -13,9 +13,9 @@ namespace fast {
     FAST_OBJECT(CoherentPointDriftAffine);
     public:
         CoherentPointDriftAffine();
+        void initializeVarianceAndMore() override;
         void expectation(MatrixXf& fixedPoints, MatrixXf& movingPoints) override;
         void maximization(MatrixXf& fixedPoints, MatrixXf& movingPoints) override;
-        void initializeVarianceAndMore() override;
 
     private:
         MatrixXf mProbabilityMatrix;            // P

@@ -1,9 +1,12 @@
 #include <FAST/Visualization/SimpleWindow.hpp>
 #include <FAST/Importers/VTKMeshFileImporter.hpp>
 #include <FAST/Importers/ImageFileImporter.hpp>
+#include "FAST/Exporters/VTKMeshFileExporter.hpp"
 #include <FAST/Visualization/ImageRenderer/ImageRenderer.hpp>
-#include "FAST/Testing.hpp"
 #include "FAST/Visualization/VertexRenderer/VertexRenderer.hpp"
+#include "FAST/Visualization/TriangleRenderer/TriangleRenderer.hpp"
+#include "FAST/Algorithms/SurfaceExtraction/SurfaceExtraction.hpp"
+#include "FAST/Testing.hpp"
 #include "CoherentPointDrift.hpp"
 #include "Rigid.hpp"
 #include "Affine.hpp"
@@ -12,21 +15,50 @@
 #include <iostream>
 using namespace fast;
 
-Mesh::pointer getPointCloud() {
+Mesh::pointer getPointCloud(std::string filename=std::string("Surface_LV.vtk")) {
     auto importer = VTKMeshFileImporter::New();
-    importer->setFilename(Config::getTestDataPath() + "Surface_LV.vtk");
+//    importer->setFilename(Config::getTestDataPath() + "Surface_LV.vtk");
+    importer->setFilename(Config::getTestDataPath() + filename);
     auto port = importer->getOutputPort();
     importer->update(0);
     return port->getNextFrame<Mesh>();
 }
 
-Mesh::pointer getBunny() {
-    auto importer = VTKMeshFileImporter::New();
-    importer->setFilename(Config::getTestDataPath() + "bunny.vtk");
-    auto port = importer->getOutputPort();
-    importer->update(0);
-    return port->getNextFrame<Mesh>();
+void saveAbdominalSurface(int threshold=-500) {
+    // Import CT image
+    ImageFileImporter::pointer importer = ImageFileImporter::New();
+    importer->setFilename(Config::getTestDataPath() + "CT/CT-Abdomen.mhd");
+
+    // Extract surface mesh using a threshold value
+    SurfaceExtraction::pointer extraction = SurfaceExtraction::New();
+    extraction->setInputConnection(importer->getOutputPort());
+    extraction->setThreshold(threshold);
+
+    auto exporter = VTKMeshFileExporter::New();
+    exporter->setFilename(Config::getTestDataPath() + "AbdominalModel.vtk");
+    exporter->setInputConnection(extraction->getOutputPort());
+    exporter->update(0);
 }
+
+void visualizeSurfaceExtraction(int threshold=-500) {
+
+    // Import CT image
+    ImageFileImporter::pointer importer = ImageFileImporter::New();
+    importer->setFilename(Config::getTestDataPath() + "CT/CT-Abdomen.mhd");
+
+    // Extract surface mesh using a threshold value
+    SurfaceExtraction::pointer extraction = SurfaceExtraction::New();
+    extraction->setInputConnection(importer->getOutputPort());
+    extraction->setThreshold(threshold);
+
+    TriangleRenderer::pointer surfaceRenderer = TriangleRenderer::New();
+    surfaceRenderer->setInputConnection(extraction->getOutputPort());
+    SimpleWindow::pointer window = SimpleWindow::New();
+    window->addRenderer(surfaceRenderer);
+    window->start();
+}
+
+
 
 void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, double noiseSampleRatio=0.0) {
     MeshAccess::pointer accessFixedSet = pointCloud->getMeshAccess(ACCESS_READ);
@@ -43,7 +75,7 @@ void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, 
     std::uniform_int_distribution<unsigned int> distribution(0, numVertices-1);
     while (sampledPoints < numSamplePoints) {
         unsigned int index = distribution(distributionEngine);
-        if (movingIndices.count(index) < 1) {
+        if (movingIndices.count(index) < 1 && vertices.at(index).getPosition().array().isNaN().sum() == 0 ) {
             newVertices.push_back(vertices.at(index));
             movingIndices.insert(index);
             ++sampledPoints;
@@ -88,53 +120,51 @@ void modifyPointCloud(Mesh::pointer &pointCloud, double fractionOfPointsToKeep, 
 
 TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
 
-    // Load identical point clouds
-    auto cloud1 = getBunny();
-    auto cloud2 = getBunny();
-    auto cloud3 = getBunny();
-//    auto cloud1 = getPointCloud();
-//    auto cloud2 = getPointCloud();
-//    auto cloud3 = getPointCloud();
+    auto dataset1 = "AbdominalModel.vtk";
+    auto dataset2 = "AbdominalModel.vtk";
+
+    // Load point clouds
+    auto cloud1 = getPointCloud(dataset1);
+    auto cloud2 = getPointCloud(dataset2);
+    auto cloud3 = getPointCloud(dataset2);
 
     // Modify point clouds
-    float fractionOfPointsToKeep = 0.2312;
-    float noiseLevel = 0.05;
-//    float fractionOfPointsToKeep = 0.8;
-//    float noiseLevel = 0.2;
-    modifyPointCloud(cloud1, fractionOfPointsToKeep, noiseLevel);
-    modifyPointCloud(cloud2, fractionOfPointsToKeep, noiseLevel);
-    modifyPointCloud(cloud3, fractionOfPointsToKeep, noiseLevel);
+    modifyPointCloud(cloud1, 0.003, 0.0);
+    modifyPointCloud(cloud2, 0.0032, 0.0);
+    modifyPointCloud(cloud3, 0.0032, 0.0);
 
     // Set registration settings
-    float uniformWeight = 0.3;
-    double tolerance = 1e-2;
+    float uniformWeight = 0.0;
+    double tolerance = 1e-3;
+    bool applyTransform = true;
 
     // Create transformation for moving point cloud
-    Vector3f translation(-0.102f, 0.005f, -0.001f);
+    Vector3f translation(-0.052f, 0.005f, -0.001f);
     auto transform = AffineTransformation::New();
-    MatrixXf deformation = Matrix3f::Identity();
-    deformation(0, 0) = 0.5;
-    deformation(0, 1) = 1.5;
-    deformation(1, 0) = 0.0;
+    MatrixXf shearing = Matrix3f::Identity();
+    shearing(0, 0) = 0.5;
+    shearing(0, 1) = 1.2;
+    shearing(1, 0) = 0.0;
     Affine3f affine = Affine3f::Identity();
-//    affine.translate(translation);
+    affine.translate(translation);
     affine.rotate(Eigen::AngleAxisf(3.141592f / 180.0f * 50.0f, Eigen::Vector3f::UnitY()));
 //    affine.scale(0.5);
-//    affine.linear() += deformation;
+//    affine.linear() += shearing;
     transform->setTransform(affine);
 
-    // Apply transform to one point cloud
-    cloud2->getSceneGraphNode()->setTransformation(transform);
-
-    // Apply transform to a point cloud not registered (for reference)
-    cloud3->getSceneGraphNode()->setTransformation(transform);
+    if (applyTransform) {
+        // Apply transform to one point cloud
+        cloud2->getSceneGraphNode()->setTransformation(transform);
+        // Apply transform to a point cloud not registered (for reference)
+        cloud3->getSceneGraphNode()->setTransformation(transform);
+    }
 
     // Run for different numbers of iterations
     std::vector<unsigned char> iterations = {50};
     for(auto maxIterations : iterations) {
 
         // Run Coherent Point Drift
-        auto cpd = CoherentPointDriftRigid::New();
+        auto cpd = CoherentPointDriftAffine::New();
         cpd->setFixedMesh(cloud1);
         cpd->setMovingMesh(cloud2);
         cpd->setMaximumIterations(maxIterations);
@@ -152,4 +182,8 @@ TEST_CASE("cpd", "[fast][coherentpointdrift][visual][cpd]") {
         window->start();
     }
 
+}
+
+TEST_CASE("cpd_visualizeModel", "[fast][coherentpointdrift][visual][cpd]") {
+    visualizeSurfaceExtraction(-500);
 }

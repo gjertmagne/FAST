@@ -24,7 +24,6 @@ namespace fast {
     }
 
     void CoherentPointDriftAffine::expectation(Eigen::MatrixXf &fixedPoints, Eigen::MatrixXf &movingPoints) {
-
         double timeStartE = omp_get_wtime();
 
         /* **********************************************************************************
@@ -56,6 +55,7 @@ namespace fast {
         timeENormal += omp_get_wtime() -timeStartENormal;
 
 
+
         /* ***************************************************
          * Calculate posterior probabilities of GMM components
          * **************************************************/
@@ -76,6 +76,7 @@ namespace fast {
         double timeEndE = omp_get_wtime();
         timeEPosterior += omp_get_wtime() - timeStartPosterior;
         timeE += timeEndE - timeStartE;
+
     }
 
     void CoherentPointDriftAffine::maximization(Eigen::MatrixXf &fixedPoints, Eigen::MatrixXf &movingPoints) {

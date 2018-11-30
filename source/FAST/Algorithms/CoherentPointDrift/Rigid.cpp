@@ -14,7 +14,6 @@ namespace fast {
 
     void CoherentPointDriftRigid::initializeVarianceAndMore() {
 
-        double tStartVar1 = omp_get_wtime();
         // Initialize the variance in the CPD registration
         mVariance = ((double) mNumMovingPoints * (mFixedPoints.transpose() * mFixedPoints).trace() +
                      (double) mNumFixedPoints * (mMovingPoints.transpose() * mMovingPoints).trace() -
@@ -62,7 +61,7 @@ namespace fast {
         double timeEndFirstLoop = omp_get_wtime();
 
         #pragma omp parallel for
-            for (int col = 0; col < mNumMovingPoints; ++col) {
+            for (int col = 0; col < mNumFixedPoints; ++col) {
                 float denom = mProbabilityMatrix.col(col).sum() + c;
                 mProbabilityMatrix.col(col) /= max(denom, Eigen::NumTraits<float>::epsilon() );
             }
