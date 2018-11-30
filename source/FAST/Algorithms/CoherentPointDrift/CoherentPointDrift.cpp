@@ -23,6 +23,7 @@ namespace fast {
         mUniformWeight = 0.5;
         mTransformation = AffineTransformation::New();
         mRegistrationConverged = false;
+        mApplyExisting = false;
         mScale = 1.0;
 
         timeE = 0.0;
@@ -38,6 +39,10 @@ namespace fast {
     }
 
     void CoherentPointDrift::initializePointSets() {
+
+        // Load point meshes
+        mFixedMesh = getInputData<Mesh>(0);
+        mMovingMesh = getInputData<Mesh>(1);
 
         // Get access to the two point sets
         MeshAccess::pointer accessFixedSet = mFixedMesh->getMeshAccess(ACCESS_READ);
@@ -66,11 +71,13 @@ namespace fast {
         }
     }
 
-    void CoherentPointDrift::applyExistingTransform(Affine3f existingTransform) {
+    Affine3f CoherentPointDrift::applyExistingTransform() {
         // Apply existing transformation (for testing) to moving point cloud
+        auto existingTransform = SceneGraph::getEigenAffineTransformationFromData(mMovingMesh);
         mMovingPoints = mMovingPoints * existingTransform.linear().transpose();
         mMovingPoints += existingTransform.translation().transpose().replicate(mNumMovingPoints, 1);
 //        movingPoints = movingPoints.rowwise().homogeneous() * existingTransform.affine();
+        return existingTransform;
     }
 
     void CoherentPointDrift::normalizePointSets() {
@@ -103,17 +110,16 @@ namespace fast {
 
         double timeStart = omp_get_wtime();
 
-        // Load point meshes
-        mFixedMesh = getInputData<Mesh>(0);
-        mMovingMesh = getInputData<Mesh>(1);
-
         // Store the point sets in matrices and store their dimensions
         initializePointSets();
         printCloudDimensions();
 
-        // Apply the existing transform to moving point cloud
-        auto existingTransform = SceneGraph::getEigenAffineTransformationFromData(mMovingMesh);
-        applyExistingTransform(existingTransform);
+        // Apply the existing transform, if any, to moving point cloud
+        auto existingTransform = Affine3f::Identity();
+        if (mApplyExisting) {
+            existingTransform = applyExistingTransform();
+        }
+
 
         // Normalize the point sets, i.e. zero mean and unit variance
         normalizePointSets();
@@ -218,6 +224,10 @@ namespace fast {
 
     void CoherentPointDrift::setTolerance(double tolerance) {
         mTolerance = tolerance;
+    }
+
+    void CoherentPointDrift::setExistingTransform() {
+        mApplyExisting = true;
     }
 
     AffineTransformation::pointer CoherentPointDrift::getOutputTransformation() {
